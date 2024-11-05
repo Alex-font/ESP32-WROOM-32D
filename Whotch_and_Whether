@@ -134,6 +134,25 @@ void displayTime() {
         Serial.print("Тиск: ");
         Serial.print(pressure);
         Serial.println(" гПа");
+        
+        // Класифікація тиску
+        Serial.print("Тиск: ");
+        Serial.print(pressure);
+        Serial.print(" гПа (");
+        if (pressure < 1000) {
+            Serial.print("Низький");
+        } else if (pressure < 1015) {
+            Serial.print("Нижче середнього");
+        } else if (pressure < 1025) {
+            Serial.print("Середній");
+        } else if (pressure < 1030) {
+            Serial.print("Вищий середнього");
+        } else {
+            Serial.print("Високий");
+        }
+        Serial.println(")");
+    } else {
+        Serial.println("Використовуємо внутрішній таймер через відсутність з'єднання."); // Якщо не вдалося отримати час
     }
 }
 
