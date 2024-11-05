@@ -1,89 +1,97 @@
-#include <Adafruit_SSD1306.h>
-#include <Wire.h>
-#include <WiFi.h>           // Бібліотека для роботи з Wi-Fi
-#include <HTTPClient.h>     // Бібліотека для відправки HTTP запитів
-#include <ArduinoJson.h>    // Бібліотека для роботи з JSON
-#include <time.h>           // Бібліотека для роботи з часом
-#include "config.h"         // Включає файл config.h, який містить дані про Wi-Fi та API_KEY
+#include <Adafruit_SSD1306.h>  // Бібліотека для роботи з OLED-дисплеєм
+#include <Wire.h>               // Бібліотека для роботи з I2C комунікацією
+#include <WiFi.h>               // Бібліотека для роботи з Wi-Fi
+#include <HTTPClient.h>         // Бібліотека для відправки HTTP запитів
+#include <ArduinoJson.h>        // Бібліотека для роботи з JSON
+#include <time.h>               // Бібліотека для роботи з часом
+#include "config.h"             // Файл config.h містить конфігурацію Wi-Fi та API_KEY для OpenWeather
 
 // Налаштування для OLED дисплея
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-#define OLED_RESET -1
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+#define SCREEN_WIDTH 128  // Ширина екрану в пікселях
+#define SCREEN_HEIGHT 64  // Висота екрану в пікселях
+#define OLED_RESET -1     // Налаштування для скидання дисплею, -1 означає, що скидання не використовується
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET); // Ініціалізація дисплею
 
 const String apiUrl = "http://api.openweathermap.org/data/2.5/weather?q=Kyiv,UA&units=metric&appid=" + String(API_KEY);
+// URL для отримання погодних даних через OpenWeather API для Києва, UA
 
 // Змінні для зберігання отриманих даних про погоду
-float currentTemperature = 0.0;
-float feelsLikeTemperature = 0.0;
-float minTemperature = 0.0;
-float maxTemperature = 0.0;
-float windSpeed = 0.0;
-String windDirection = "Невідомо";
-float pressure = 0.0;
-const char* currentWeatherDescription = "Невідомо";
-float precipitation = 0.0;
-float humidity = 0.0; // Змінна для вологості
+float currentTemperature = 0.0;    // Поточна температура
+float feelsLikeTemperature = 0.0;  // Температура, яку відчуває людина
+float minTemperature = 0.0;       // Мінімальна температура за день
+float maxTemperature = 0.0;       // Максимальна температура за день
+float windSpeed = 0.0;            // Швидкість вітру в м/с
+String windDirection = "Невідомо"; // Напрямок вітру
+float pressure = 0.0;             // Атмосферний тиск
+const char* currentWeatherDescription = "Невідомо"; // Опис поточної погоди
+float precipitation = 0.0;        // Кількість опадів
+float humidity = 0.0;             // Вологість
 
-unsigned long lastWeatherUpdate = 0; // Для зберігання часу останнього оновлення погоди
-const unsigned long weatherUpdateInterval = 300000; // Інтервал оновлення погоди (5 хвилин)
+unsigned long lastWeatherUpdate = 0; // Час останнього оновлення погоди
+const unsigned long weatherUpdateInterval = 300000; // Інтервал між оновленнями погоди (5 хвилин)
 
 void setup() {
-    Serial.begin(115200); 
-    WiFi.begin(ssid, password); 
+    Serial.begin(115200);  // Ініціалізація серійного монітора для виведення інформації
+    WiFi.begin(ssid, password);  // Підключення до Wi-Fi мережі за допомогою налаштувань із файлу config.h
 
+    // Чекаємо, поки не з'єднаємось з Wi-Fi
     while (WiFi.status() != WL_CONNECTED) { 
         delay(500);
-        Serial.print(".");
+        Serial.print("."); // Поки не з'єдналися, виводимо крапки
     }
-    Serial.println(" WiFi connected.");
+    Serial.println(" WiFi connected.");  // Виводимо повідомлення, коли з'єднання встановлено
 
+    // Налаштовуємо час через NTP сервер
     configTime(2 * 3600, 0, "pool.ntp.org", "time.nist.gov"); 
 
     struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
+    if (!getLocalTime(&timeinfo)) {  // Отримуємо локальний час
         Serial.println("Не вдалося отримати час через інтернет");
         return;
     }
-    Serial.println("Час синхронізовано з NTP-сервером");
+    Serial.println("Час синхронізовано з NTP-сервером");  // Повідомлення про успішну синхронізацію часу
 
     // Ініціалізація OLED дисплея
     if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { 
         Serial.println(F("Не вдалося знайти OLED дисплей"));
-        for(;;);
+        for(;;);  // Якщо дисплей не знайдено, програма зависне
     }
-    display.clearDisplay();
-    display.display();
+    display.clearDisplay();  // Очищаємо дисплей
+    display.display();  // Виводимо очищену інформацію на екран
 
-    fetchWeather();
+    fetchWeather();  // Отримуємо початкові погодні дані
 }
 
 void displayDataOnOLED() {
-    display.clearDisplay();
+    display.clearDisplay();  // Очищаємо дисплей
 
-    display.setTextSize(1); 
-    display.setTextColor(SSD1306_WHITE);
+    display.setTextSize(1);  // Розмір шрифта
+    display.setTextColor(SSD1306_WHITE);  // Колір тексту (білий)
 
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) {
+    if (getLocalTime(&timeinfo)) {  // Перевіряємо, чи є час
         const char* daysOfWeek[] = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"};
-        int dayIndex = (timeinfo.tm_wday + 6) % 7; 
-        display.setCursor(0, 0);
+        int dayIndex = (timeinfo.tm_wday + 6) % 7;  // Визначаємо день тижня
+        display.setCursor(0, 0);  // Встановлюємо курсор у верхній лівий кут
         display.printf("%s %02d:%02d:%02d", daysOfWeek[dayIndex], timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
 
-        display.setCursor(0, 10);
-        display.printf("Температура: %.1f C", currentTemperature);
-        display.setCursor(0, 20);
-        display.printf("Відчувається: %.1f C", feelsLikeTemperature);
-        display.setCursor(0, 30);
-        display.printf("H: %.1f C L: %.1f C", maxTemperature, minTemperature);
-        display.setCursor(0, 40);
-        display.printf("Вологість: %.1f%%", humidity);
-        display.setCursor(0, 50);
-        display.printf("Тиск: %.1f гПа", pressure);
+        display.setCursor(0, 10);  // Встановлюємо курсор на 10 пікселів вниз
+        display.printf("Температура: %.1f C", currentTemperature);  // Виводимо поточну температуру
+        display.setCursor(0, 20);  // Встановлюємо курсор на 20 пікселів вниз
+        display.printf("Відчувається: %.1f C", feelsLikeTemperature);  // Виводимо температуру відчуття
+        display.setCursor(0, 30);  // Встановлюємо курсор на 30 пікселів вниз
+        display.printf("H: %.1f C L: %.1f C", maxTemperature, minTemperature);  // Мінімальна та максимальна температура
+        display.setCursor(0, 40);  // Встановлюємо курсор на 40 пікселів вниз
+        display.printf("Вологість: %.1f%%", humidity);  // Виводимо вологість
+        display.setCursor(0, 50);  // Встановлюємо курсор на 50 пікселів вниз
+        display.printf("Тиск: %.1f гПа", pressure);  // Виводимо тиск
+        display.setCursor(0, 60);  // Встановлюємо курсор на 60 пікселів вниз
 
-        display.display();
+        // Перетворення швидкості вітру з м/с в км/год
+        float windSpeedKmh = windSpeed * 3.6;  // Перетворення
+        display.printf("Вітер: %.1f км/год", windSpeedKmh);  // Виводимо швидкість вітру в км/год
+
+        display.display();  // Оновлюємо дисплей
     } else {
         Serial.println("Використовуємо внутрішній таймер через відсутність з'єднання.");
     }
@@ -91,64 +99,63 @@ void displayDataOnOLED() {
 
 void displayTime() {
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo)) { 
+    if (getLocalTime(&timeinfo)) {  // Перевіряємо, чи є час
         const char* daysOfWeek[] = {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"};
         int dayIndex = (timeinfo.tm_wday + 6) % 7;
-        Serial.print(daysOfWeek[dayIndex]);
+        Serial.print(daysOfWeek[dayIndex]);  // Виводимо день тижня
         Serial.print(" ");
         Serial.printf("%02d:%02d:%02d %02d/%02d/%04d\n", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec, timeinfo.tm_mday, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
         
         Serial.print("Температура: ");
-        Serial.print(currentTemperature);
+        Serial.print(currentTemperature);  // Виводимо температуру на серійному моніторі
         Serial.println(" °C");
 
         Serial.print("Відчувається як: ");
-        Serial.print(feelsLikeTemperature);
+        Serial.print(feelsLikeTemperature);  // Виводимо температуру відчуття
         Serial.println(" °C");
 
         Serial.print("H-Температура: ");
-        Serial.print(maxTemperature);
+        Serial.print(maxTemperature);  // Виводимо максимальну температуру
         Serial.println(" °C");
 
         Serial.print("L-Температура: ");
-        Serial.print(minTemperature);
+        Serial.print(minTemperature);  // Виводимо мінімальну температуру
         Serial.println(" °C");
 
         Serial.print("Вологість: ");
-        Serial.print(humidity);
+        Serial.print(humidity);  // Виводимо вологість
         Serial.println(" %");
 
         Serial.print("Опади: ");
-        Serial.print(precipitation);
+        Serial.print(precipitation);  // Виводимо кількість опадів
         Serial.println(" мм");
 
         Serial.print("Опис погоди: ");
-        Serial.println(currentWeatherDescription);
+        Serial.println(currentWeatherDescription);  // Виводимо опис погоди
 
-        Serial.print("Напрям вітру: ");
-        Serial.print(windDirection);
-        Serial.print(" зі швидкістю ");
-        Serial.print(windSpeed);
-        Serial.println(" м/с");
+        Serial.print("Вітер: ");
+        Serial.print(windDirection);  // Виводимо напрямок вітру
+        Serial.print(" / швидкість ");
+        // Перетворення швидкості вітру з м/с в км/год
+        float windSpeedKmh = windSpeed * 3.6;  // Перетворення
+        Serial.print(windSpeedKmh);
+        Serial.println(" км/год");
 
         Serial.print("Тиск: ");
-        Serial.print(pressure);
-        Serial.println(" гПа");
-        
+        Serial.print(pressure);  // Виводимо тиск
+
         // Класифікація тиску
-        Serial.print("Тиск: ");
-        Serial.print(pressure);
         Serial.print(" гПа (");
         if (pressure < 1000) {
-            Serial.print("Низький");
+            Serial.print("Низький");  // Низький тиск
         } else if (pressure < 1015) {
-            Serial.print("Нижче середнього");
+            Serial.print("Нижче середнього");  // Тиск нижче середнього
         } else if (pressure < 1025) {
-            Serial.print("Середній");
+            Serial.print("Середній");  // Середній тиск
         } else if (pressure < 1030) {
-            Serial.print("Вищий середнього");
+            Serial.print("Вищий середнього");  // Тиск вищий середнього
         } else {
-            Serial.print("Високий");
+            Serial.print("Високий");  // Високий тиск
         }
         Serial.println(")");
     } else {
@@ -157,18 +164,19 @@ void displayTime() {
 }
 
 void fetchWeather() {
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        http.begin(apiUrl);
+    if (WiFi.status() == WL_CONNECTED) {  // Перевіряємо, чи є з'єднання з Wi-Fi
+        HTTPClient http;  // Ініціалізуємо HTTP клієнт
+        http.begin(apiUrl);  // Встановлюємо підключення до API
 
-        int httpCode = http.GET();
-        if (httpCode > 0) {
-            String payload = http.getString();
-            Serial.println("Weather data: " + payload);
+        int httpCode = http.GET();  // Виконуємо GET запит
+        if (httpCode > 0) {  // Якщо код відповіді більший за 0, то запит успішний
+            String payload = http.getString();  // Отримуємо відповідь від сервера
+            Serial.println("Weather data: " + payload);  // Виводимо дані про погоду
 
-            DynamicJsonDocument doc(2048);
-            deserializeJson(doc, payload);
+            DynamicJsonDocument doc(2048);  // Створюємо JSON документ для розбору відповіді
+            deserializeJson(doc, payload);  // Розбираємо JSON
 
+            // Отримуємо значення з JSON і зберігаємо в змінні
             currentTemperature = doc["main"]["temp"];
             feelsLikeTemperature = doc["main"]["feels_like"];
             minTemperature = doc["main"]["temp_min"];
@@ -177,6 +185,7 @@ void fetchWeather() {
             windSpeed = doc["wind"]["speed"];
             humidity = doc["main"]["humidity"];
 
+            // Визначаємо напрямок вітру на основі градусів
             float windDeg = doc["wind"]["deg"];
             if (windDeg >= 0 && windDeg < 45) windDirection = "Північний";
             else if (windDeg >= 45 && windDeg < 90) windDirection = "Східний";
@@ -187,12 +196,14 @@ void fetchWeather() {
             else if (windDeg >= 270 && windDeg < 315) windDirection = "Північно-західний";
             else windDirection = "Північний";
 
+            // Отримуємо кількість опадів, якщо вони є
             if (doc.containsKey("rain")) {
                 precipitation = doc["rain"]["1h"];
             } else {
                 precipitation = 0;
             }
 
+            // Опис погоди
             const char* weatherId = doc["weather"][0]["description"];
             if (strcmp(weatherId, "few clouds") == 0) {
                 currentWeatherDescription = "мало хмарно";
@@ -214,22 +225,22 @@ void fetchWeather() {
                 currentWeatherDescription = "інше";
             }
         } else {
-            Serial.println("Не вдалося отримати дані про погоду.");
+            Serial.println("Не вдалося отримати дані про погоду.");  // Якщо запит не вдався
         }
 
-        http.end();
+        http.end();  // Закриваємо HTTP з'єднання
     }
 }
 
 void loop() {
-    displayTime();
+    displayTime();  // Виводимо час
 
     unsigned long currentMillis = millis();
-    if (currentMillis - lastWeatherUpdate >= weatherUpdateInterval) {
-        fetchWeather();
-        lastWeatherUpdate = currentMillis;
+    if (currentMillis - lastWeatherUpdate >= weatherUpdateInterval) {  // Якщо пройшло 5 хвилин
+        fetchWeather();  // Отримуємо нові погодні дані
+        lastWeatherUpdate = currentMillis;  // Оновлюємо час останнього оновлення
     }
 
-    displayDataOnOLED();
-    delay(1000);
+    displayDataOnOLED();  // Виводимо дані на OLED дисплей
+    delay(1000);  // Затримка в 1 секунду
 }
